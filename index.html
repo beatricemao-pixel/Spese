@@ -127,6 +127,7 @@ svg.chart text { fill: var(--muted); font-family: var(--font-body); }
 svg.chart text.cur { fill: var(--ink); font-weight: 600; }
 textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--bg); font-size: 14px; }
 .hidden { display: none; }
+.danger { border-color: var(--danger); color: var(--danger); font-weight: 600; }
 .note { font-size: 13px; color: var(--muted); text-align: center; }
 @media (prefers-reduced-motion: no-preference) { .fill { transition: width .25s ease; } }
 </style>
@@ -271,6 +272,20 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
     <div class="msg">Ripristinare sostituisce i dati che hai ora con quelli della copia.</div>
     <div class="msg" id="exMsg" role="status" aria-live="polite"></div>
     <textarea id="fallback" class="hidden" readonly aria-label="Testo da copiare"></textarea>
+  </section>
+
+  <section class="card" aria-label="Azzera i dati">
+    <h2>Azzera i dati</h2>
+    <div class="msg">Cancella movimenti, budget, totale in banca, obiettivi e categorie tue. Se vuoi poterli recuperare, fai prima la copia di sicurezza.</div>
+    <button class="secondary danger" id="resetBtn" type="button">Cancella tutti i dati</button>
+    <div class="hidden" id="resetSure">
+      <div class="status over">Sei sicuro? Questa azione non si può annullare.</div>
+      <div class="btns" style="margin-top:8px">
+        <button class="secondary danger" id="resetYes" type="button">Sì, cancella tutto</button>
+        <button class="secondary" id="resetNo" type="button">Annulla</button>
+      </div>
+    </div>
+    <div class="msg" id="resetMsg" role="status" aria-live="polite"></div>
   </section>
 
   <p class="note" id="storage"></p>
@@ -795,6 +810,19 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
       $("imFile").value = "";
     };
     r.readAsText(f);
+  });
+
+  /* Azzera i dati */
+  function resetAsk(on) { $("resetBtn").classList.toggle("hidden", on); $("resetSure").classList.toggle("hidden", !on); }
+  $("resetBtn").addEventListener("click", function () { say("resetMsg", ""); resetAsk(true); });
+  $("resetNo").addEventListener("click", function () { resetAsk(false); });
+  $("resetYes").addEventListener("click", function () {
+    state.items = []; state.rules = []; state.goals = []; state.budget = 0; state.bank = null; state.catBudgets = {}; state.cats = null;
+    state.editId = null; state.armed = null; state.addingCat = false; state.type = "out"; state.cat = DEF.out[0];
+    state.q = ""; state.ftype = "all"; state.fcat = ""; $("q").value = "";
+    $("amount").value = ""; $("note").value = ""; $("rec").checked = false; $("date").value = today();
+    localClear(); resetAsk(false); render();
+    say("resetMsg", "Tutti i dati sono stati cancellati.");
   });
 
   /* Copia di sicurezza */
