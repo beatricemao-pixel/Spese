@@ -61,6 +61,7 @@ button { cursor: pointer; }
 .total .num { font-family: var(--font-display); font-weight: 700; font-size: 44px; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .split > div { background: var(--bg); border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.split .wide { grid-column: 1 / -1; }
 .split .lbl { font-size: 13px; color: var(--muted); }
 .split .v { font-family: var(--font-display); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; }
 .row { display: flex; gap: 8px; }
@@ -141,6 +142,7 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
   <section class="card" aria-label="Riepilogo del mese">
     <div class="total"><span class="lbl">Ti rimane questo mese</span><span class="num" id="balance">0,00 €</span></div>
     <div class="split">
+      <div class="wide"><span class="lbl">In banca a inizio mese</span><span class="v" id="sumStart">0,00 €</span></div>
       <div><span class="lbl">Entrate</span><span class="v" id="sumIn">0,00 €</span></div>
       <div><span class="lbl">Uscite</span><span class="v" id="sumOut">0,00 €</span></div>
     </div>
@@ -152,8 +154,8 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
     <h2>In banca</h2>
     <div class="total"><span class="lbl">Totale sul conto</span><span class="num" id="bankTotal">0,00 €</span></div>
     <div class="msg" id="bankHint"></div>
-    <div class="field"><label for="bankInput">Quanto avevi in banca all’inizio, in euro</label><input id="bankInput" type="text" inputmode="decimal" placeholder="Es. 1500"></div>
-    <div class="btns"><button class="secondary" id="bankSave" type="button">Salva saldo iniziale</button></div>
+    <div class="field"><label for="bankInput">Totale in banca adesso, in euro</label><input id="bankInput" type="text" inputmode="decimal" placeholder="Es. 1500"></div>
+    <div class="btns"><button class="secondary" id="bankSave" type="button">Aggiorna totale in banca</button></div>
   </section>
 
   <section class="card" aria-label="Budget">
@@ -177,6 +179,10 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
       <div class="field"><label for="date">Data</label><input id="date" type="date" required></div>
     </div>
     <div class="chips" id="cats" role="group" aria-label="Categoria"></div>
+    <div class="row hidden" id="newCatRow">
+      <input id="newCat" type="text" maxlength="20" placeholder="Nome della nuova categoria" aria-label="Nome della nuova categoria">
+      <button class="secondary" id="newCatOk" type="button">Aggiungi</button>
+    </div>
     <div class="field"><label for="note">Nota (facoltativa)</label><input id="note" type="text" maxlength="80" placeholder="Es. pizza con Marco"></div>
     <label class="check" id="recWrap"><input type="checkbox" id="rec"> Si ripete ogni mese</label>
     <button class="primary" id="save" type="submit">Aggiungi uscita</button>
@@ -279,7 +285,7 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
   var state = {
     items: [], rules: [], goals: [], budget: 0, bank: null, catBudgets: {}, cats: null,
     type: "out", cat: DEF.out[0], ym: null, mode: "local", uid: null,
-    armed: null, editId: null, q: "", ftype: "all", fcat: ""
+    armed: null, editId: null, addingCat: false, q: "", ftype: "all", fcat: ""
   };
   var $ = function (id) { return document.getElementById(id); };
   var fmt = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: "always" });
@@ -359,10 +365,13 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
   function renderSummary() {
     var s = sums(monthItems(state.ym));
     $("monthLabel").textContent = monthName(state.ym);
-    $("balance").textContent = money(s.bal);
+    var startBal = (state.bank || 0) + sums(state.items.filter(function (x) { return validItem(x) && x.date.slice(0, 7) < state.ym; })).bal;
+    var avail = startBal + s.inn;
+    $("balance").textContent = money(avail - s.out);
+    $("sumStart").textContent = money(startBal);
     $("sumIn").textContent = money(s.inn);
     $("sumOut").textContent = money(s.out);
-    $("spentPct").textContent = s.inn > 0 ? "Hai speso il " + Math.round(s.out / s.inn * 100) + "% delle entrate di questo mese." : (s.out > 0 ? "Nessuna entrata registrata in questo mese." : "");
+    $("spentPct").textContent = avail > 0 ? "Hai speso il " + Math.round(s.out / avail * 100) + "% di quello che avevi a disposizione (banca a inizio mese più entrate)." : (s.out > 0 ? "Non risulta nessuna disponibilità: scrivi il totale in banca qui sotto." : "");
     var pm = shiftMonth(state.ym, -1), prevList = monthItems(pm), prev = sums(prevList);
     var cmp = "";
     if (prevList.some(function (x) { return kind(x) === "out"; })) {
@@ -373,8 +382,8 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
     $("cmp").textContent = cmp;
     $("bankTotal").textContent = money(bankTotal());
     $("bankHint").textContent = state.bank === null
-      ? "Scrivi quanto avevi in banca all’inizio: il totale parte da lì e segue entrate e uscite."
-      : "Partito da " + money(state.bank) + ", più tutte le entrate e meno tutte le uscite registrate.";
+      ? "Scrivi quanto hai in banca adesso: l’app parte da lì e lo aggiorna con ogni entrata e uscita."
+      : "Si aggiorna da solo con ogni movimento. Se non coincide con la banca, correggilo qui sotto.";
   }
 
   function renderBudget() {
@@ -570,7 +579,21 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
       b.addEventListener("click", function () { state.cat = c; buildForm(); });
       box.appendChild(b);
     });
+    var plus = document.createElement("button"); plus.type = "button"; plus.className = "chip"; plus.textContent = "+ Nuova";
+    plus.setAttribute("aria-expanded", String(state.addingCat));
+    plus.addEventListener("click", function () { state.addingCat = !state.addingCat; buildForm(); if (state.addingCat) $("newCat").focus(); });
+    box.appendChild(plus);
+    $("newCatRow").classList.toggle("hidden", !state.addingCat);
   }
+  function addInline() {
+    var name = $("newCat").value.trim(); if (!name) { $("newCat").focus(); return; }
+    var ex = cats(state.type).filter(function (c) { return c.toLowerCase() === name.toLowerCase(); })[0];
+    if (ex) { state.cat = ex; }
+    else { state.cats = { out: cats("out").slice(), "in": cats("in").slice() }; state.cats[state.type].push(name); saveCats(); state.cat = name; }
+    $("newCat").value = ""; state.addingCat = false; render();
+  }
+  $("newCatOk").addEventListener("click", addInline);
+  $("newCat").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); addInline(); } });
   function setType(t) { state.type = t; if (cats(t).indexOf(state.cat) < 0) state.cat = cats(t)[0]; buildForm(); }
   function startEdit(id) {
     var x = state.items.filter(function (y) { return y.id === id; })[0]; if (!x) return;
@@ -638,7 +661,7 @@ textarea { width: 100%; min-height: 160px; border: 1px solid var(--line); border
   $("budgetClear").addEventListener("click", function () { state.budget = 0; putSetting("budget", { amount: 0 }); render(); });
   $("bankSave").addEventListener("click", function () {
     var c = parseSigned($("bankInput").value); if (c === null) { $("bankInput").focus(); return; }
-    state.bank = c; $("bankInput").value = ""; putSetting("bank", { amount: c }); render();
+    state.bank = c - sums(state.items.filter(validItem)).bal; $("bankInput").value = ""; putSetting("bank", { amount: state.bank }); render();
   });
   $("limCat").addEventListener("change", updateLimMsg);
   $("limSave").addEventListener("click", function () {
